@@ -439,7 +439,7 @@ class ViewQueryTests(unittest.TestCase):
         while True:
             if not query_threads:
                 return
-            self.thread_stopped.wait()
+            self.thread_stopped.wait(600)
             if self.thread_crashed.is_set():
                 for t in query_threads:
                     t.stop()
@@ -642,7 +642,9 @@ class QueryView:
                         self.results.addFailure(tc, (Exception, "No error raised for negative case", sys.exc_info()[2]))
                         tc.thread_crashed.set()
         finally:
-            tc.thread_stopped.set()
+            if not tc.thread_stopped.is_set():
+                tc.thread_stopped.set()
+
 
 
     """
@@ -1039,7 +1041,7 @@ class EmployeeDataSet:
         while True:
             if not data_threads:
                 return
-            tc.thread_stopped.wait()
+            tc.thread_stopped.wait(600)
             if tc.thread_crashed.is_set():
                 for t in data_threads:
                     t.stop()
@@ -1087,15 +1089,14 @@ class EmployeeDataSet:
                         doc_sets.append(docs)
                     # load docs
                     self._load_chunk(smart, doc_sets)
-            tc.thread_stopped.set()
         except Exception as ex:
             view.results.addError(tc, sys.exc_info())
             tc.log.error("Load data thread is crashed: " + ex)
             tc.thread_crashed.set()
-            tc.thread_stopped.set()
             raise ex
         finally:
-            tc.thread_stopped.set()
+            if not tc.thread_stopped.is_set():
+                tc.thread_stopped.set()
 
     def _load_chunk(self, smart, doc_sets):
 
