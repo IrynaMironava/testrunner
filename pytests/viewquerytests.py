@@ -443,15 +443,10 @@ class ViewQueryTests(unittest.TestCase):
             if self.thread_crashed.is_set():
                 for t in query_threads:
                     t.stop()
-<<<<<<< HEAD
-                    return
-=======
                 return
->>>>>>> 7958cff... CBQE-285: test will fail if data load thread crashes
             else:
                 query_threads = [d for d in query_threads if d.is_alive()]
                 self.thread_stopped.clear()
-#        [t.join() for t in query_threads]
 
         self._check_view_intergrity(views)
 
