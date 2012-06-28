@@ -408,6 +408,7 @@ class ViewQueryTests(unittest.TestCase):
             if (self.thread_crashed.is_set()):
                 load_task.stop()
                 self._check_view_intergrity(views)
+                return
             self._query_all_views(views, False, limit=data_set.limit)
             time.sleep(5)
         if 'result' in dir(load_task):
@@ -442,7 +443,11 @@ class ViewQueryTests(unittest.TestCase):
             if self.thread_crashed.is_set():
                 for t in query_threads:
                     t.stop()
+<<<<<<< HEAD
                     return
+=======
+                return
+>>>>>>> 7958cff... CBQE-285: test will fail if data load thread crashes
             else:
                 query_threads = [d for d in query_threads if d.is_alive()]
                 self.thread_stopped.clear()
@@ -631,6 +636,7 @@ class QueryView:
                         if query.error:
                             if ex.message.find(query.error) > -1:
                                 self.log.info("View results contain '{0}' error as expected".format(query.error))
+                                tc.thread_stopped.set()
                                 return
                             else:
                                 self.log.error("View results expect '{0}' error but {1} raised".format(query.error, ex.message))
@@ -1044,12 +1050,10 @@ class EmployeeDataSet:
             if tc.thread_crashed.is_set():
                 for t in data_threads:
                     t.stop()
-                    return
+                return
             else:
                 data_threads = [d for d in data_threads if d.is_alive()]
                 tc.thread_stopped.clear()
-#        for t  in data_threads:
-#            t.join()
 
         self.preload_matching_query_keys()
 
@@ -1090,11 +1094,12 @@ class EmployeeDataSet:
                         doc_sets.append(docs)
                     # load docs
                     self._load_chunk(smart, doc_sets)
-
+            tc.thread_stopped.set()
         except Exception as ex:
             view.results.addError(tc, sys.exc_info())
             tc.log.error("Load data thread is crashed: " + ex)
             tc.thread_crashed.set()
+            tc.thread_stopped.set()
             raise ex
         finally:
             tc.thread_stopped.set()
