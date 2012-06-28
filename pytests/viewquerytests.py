@@ -5,7 +5,7 @@ import unittest
 import json
 import sys
 import copy
-from threading import Thread
+from threading import Thread, Event
 from couchbase.document import View
 from membase.api.rest_client import RestConnection, RestHelper
 from viewtests import ViewBaseTests
@@ -15,6 +15,23 @@ from membase.helper.rebalance_helper import RebalanceHelper
 from old_tasks import task, taskmanager
 from memcached.helper.old_kvstore import ClientKeyValueStore
 from TestInput import TestInputSingleton
+
+class StoppableThread(Thread):
+    """Thread class with a stop() method. The thread itself has to check
+    regularly for the stopped() condition."""
+
+    def __init__(self, group=None, target=None, name=None,
+                 args=(), kwargs=None, verbose=None):
+        super(StoppableThread, self).__init__(group=group, target=target,
+                        name=name, args=args, kwargs=kwargs, verbose=verbose)
+        self._stop = Event()
+
+    def stop(self):
+        self._stop.set()
+        self._Thread__stop()
+
+    def stopped(self):
+        return self._stop.isSet()
 
 class ViewQueryTests(unittest.TestCase):
     skip_setup_failed  = False
@@ -28,6 +45,10 @@ class ViewQueryTests(unittest.TestCase):
             self.error = None
             self.task_manager = taskmanager.TaskManager()
             self.task_manager.start()
+            self.thread_crashed = Event()
+            self.thread_stopped = Event()
+            #self.listener_thread = Thread(target=Listener().listener, name='listener', args=(self,))
+            #self.listener_thread.start()
         except Exception as ex:
             skip_setup_failed = True
             self.fail(ex)
@@ -36,6 +57,7 @@ class ViewQueryTests(unittest.TestCase):
         ViewBaseTests.common_tearDown(self)
 
         self.task_manager.cancel()
+
 
     def test_simple_dataset_stale_queries(self):
         # init dataset for test
@@ -373,7 +395,7 @@ class ViewQueryTests(unittest.TestCase):
 
         if tm is None:
             # start loading data using old method
-            load_task = Thread(target=data_set.load,
+            load_task = StoppableThread(target=data_set.load,
                                name="load_data_set",
                                args=(self, views[0]))
             load_task.start()
@@ -383,6 +405,9 @@ class ViewQueryTests(unittest.TestCase):
 
         # run queries while loading data
         while(load_task.is_alive()):
+            if (self.thread_crashed.is_set()):
+                load_task.stop()
+                self._check_view_intergrity(views)
             self._query_all_views(views, False, limit=data_set.limit)
             time.sleep(5)
         if 'result' in dir(load_task):
@@ -391,7 +416,7 @@ class ViewQueryTests(unittest.TestCase):
             load_task.join()
 
         # results will be verified if verify_results set
-        if verify_results:
+        if verify_results and not self.thread_crashed.is_set():
             self._query_all_views(views, verify_results, data_set.kv_store, limit = data_set.limit)
         else:
             self._check_view_intergrity(views)
@@ -404,13 +429,24 @@ class ViewQueryTests(unittest.TestCase):
 
         query_threads = []
         for view in views:
-            t = Thread(target=view.run_queries,
+            t = StoppableThread(target=view.run_queries,
                name="query-{0}".format(view.name),
                args=(self, verify_results, kv_store, limit))
             query_threads.append(t)
             t.start()
 
-        [t.join() for t in query_threads]
+        while True:
+            if not query_threads:
+                return
+            self.thread_stopped.wait()
+            if self.thread_crashed.is_set():
+                for t in query_threads:
+                    t.stop()
+                    return
+            else:
+                query_threads = [d for d in query_threads if d.is_alive()]
+                self.thread_stopped.clear()
+#        [t.join() for t in query_threads]
 
         self._check_view_intergrity(views)
 
@@ -579,6 +615,9 @@ class QueryView:
                 except:
                     self.log.error("Query failed: see test result logs for details")
                     self.results.addFailure(tc, sys.exc_info())
+                    tc.log.error("Query data thread is crashed: " + sys.exc_info())
+                    tc.thread_crashed.set()
+                    tc.thread_stopped.set()
 
             else:
                 # query without verification
@@ -596,10 +635,15 @@ class QueryView:
                             else:
                                 self.log.error("View results expect '{0}' error but {1} raised".format(query.error, ex.message))
                                 self.results.addFailure(tc,(type(ex), ex.message, sys.exc_info()[2]))
+                                tc.thread_crashed.set()
+                                tc.thread_stopped.set()
                                 return
                 if query.error:
                     self.log.error("No error raised for negative case. Expected error '{0}'".format(query.error))
                     self.results.addFailure(tc, (Exception, "No error raised for negative case", sys.exc_info()[2]))
+                    tc.thread_crashed.set()
+                    tc.thread_stopped.set()
+        tc.thread_stopped.set()
 
 
     """
@@ -988,14 +1032,24 @@ class EmployeeDataSet:
         for info in self.get_data_sets():
 
             self.doc_id_map.update({info['type'] : {"years" : self._doc_map_array()}})
-            t = Thread(target=self._iterative_load,
+            t = StoppableThread(target=self._iterative_load,
                        name="iterative_load",
                        args=(info, tc, view, self.docs_per_day, verify_docs_loaded))
             data_threads.append(t)
             t.start()
-
-        for t  in data_threads:
-            t.join()
+        while True:
+            if not data_threads:
+                return
+            tc.thread_stopped.wait()
+            if tc.thread_crashed.is_set():
+                for t in data_threads:
+                    t.stop()
+                    return
+            else:
+                data_threads = [d for d in data_threads if d.is_alive()]
+                tc.thread_stopped.clear()
+#        for t  in data_threads:
+#            t.join()
 
         self.preload_matching_query_keys()
 
@@ -1039,7 +1093,11 @@ class EmployeeDataSet:
 
         except Exception as ex:
             view.results.addError(tc, sys.exc_info())
+            tc.log.error("Load data thread is crashed: " + ex)
+            tc.thread_crashed.set()
             raise ex
+        finally:
+            tc.thread_stopped.set()
 
     def _load_chunk(self, smart, doc_sets):
 
