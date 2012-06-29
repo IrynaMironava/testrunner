@@ -57,6 +57,43 @@ class ViewQueryTests(unittest.TestCase):
 
         self.task_manager.cancel()
 
+    def test_query_node_warmup(self):
+        master = self.servers[0]
+        rest = RestConnection(master)
+
+        buckets = rest.get_buckets()
+ 
+        docs_per_day = self.input.param('docs-per-day', 200)
+        data_set = EmployeeDataSet(self._rconn(), docs_per_day)
+
+        data_set.add_startkey_endkey_queries()
+        self._query_test_init(data_set, False)
+
+        # Cluster total - 1 nodes
+        ViewBaseTests._begin_rebalance_in(self)
+        ViewBaseTests._end_rebalance(self)
+
+        view_names = {}
+        view_bucket = {}
+        for bucket in buckets:
+            for i in xrange(self.num_design_docs):
+                prefix = str(uuid.uuid4())[:7]
+                ViewBaseTests._create_view_doc_name(self, prefix, bucket.name)
+                doc_names = ViewBaseTests._load_docs(self, self.num_docs, prefix, bucket=bucket.name,\
+                    verify=False)
+                view_names[prefix] = doc_names
+                view_bucket[prefix] = bucket.name
+
+        # Pick a node to warmup
+        server = self.servers[-1]
+        shell = RemoteMachineShellConnection(server)
+        self.log.info("Node {0} is being stopped".format(server.ip))
+        shell.stop_couchbase()
+        time.sleep(20)
+        shell.start_couchbase()
+        self.log.info("Node {0} should be warming up".format(server.ip))
+
+        self._query_test_init(data_set)
 
     def test_simple_dataset_stale_queries(self):
         # init dataset for test
