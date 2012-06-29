@@ -47,6 +47,7 @@ class ViewQueryTests(unittest.TestCase):
             self.task_manager.start()
             self.thread_crashed = Event()
             self.thread_stopped = Event()
+
         except Exception as ex:
             skip_setup_failed = True
             self.fail(ex)
@@ -415,7 +416,7 @@ class ViewQueryTests(unittest.TestCase):
             load_task.join()
 
         # results will be verified if verify_results set
-        if verify_results:
+        if verify_results and not self.thread_crashed.is_set():
             self._query_all_views(views, verify_results, data_set.kv_store, limit = data_set.limit)
         else:
             self._check_view_intergrity(views)
@@ -438,6 +439,7 @@ class ViewQueryTests(unittest.TestCase):
             if not query_threads:
                 return
             self.thread_stopped.wait(60)
+
             if self.thread_crashed.is_set():
                 for t in query_threads:
                     t.stop()
@@ -445,7 +447,6 @@ class ViewQueryTests(unittest.TestCase):
             else:
                 query_threads = [d for d in query_threads if d.is_alive()]
                 self.thread_stopped.clear()
-#        [t.join() for t in query_threads]
 
         self._check_view_intergrity(views)
 
@@ -1039,6 +1040,7 @@ class EmployeeDataSet:
         while True:
             if not data_threads:
                 return
+
             tc.thread_stopped.wait(60)
             if tc.thread_crashed.is_set():
                 for t in data_threads:
