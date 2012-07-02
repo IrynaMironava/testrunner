@@ -15,6 +15,7 @@ from membase.helper.rebalance_helper import RebalanceHelper
 from old_tasks import task, taskmanager
 from memcached.helper.old_kvstore import ClientKeyValueStore
 from TestInput import TestInputSingleton
+from remote.remote_util import RemoteMachineShellConnection
 
 class StoppableThread(Thread):
     """Thread class with a stop() method. The thread itself has to check
