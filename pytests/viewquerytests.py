@@ -48,6 +48,7 @@ class ViewQueryTests(unittest.TestCase):
             self.thread_crashed = Event()
             self.thread_stopped = Event()
             self.server = None
+
         except Exception as ex:
             skip_setup_failed = True
             self.fail(ex)
@@ -57,6 +58,43 @@ class ViewQueryTests(unittest.TestCase):
 
         self.task_manager.cancel()
 
+    def test_query_node_warmup(self):
+        master = self.servers[0]
+        rest = RestConnection(master)
+
+        buckets = rest.get_buckets()
+ 
+        docs_per_day = self.input.param('docs-per-day', 200)
+        data_set = EmployeeDataSet(self._rconn(), docs_per_day)
+
+        data_set.add_startkey_endkey_queries()
+        self._query_test_init(data_set, False)
+
+        # Cluster total - 1 nodes
+        ViewBaseTests._begin_rebalance_in(self)
+        ViewBaseTests._end_rebalance(self)
+
+        view_names = {}
+        view_bucket = {}
+        for bucket in buckets:
+            for i in xrange(self.num_design_docs):
+                prefix = str(uuid.uuid4())[:7]
+                ViewBaseTests._create_view_doc_name(self, prefix, bucket.name)
+                doc_names = ViewBaseTests._load_docs(self, self.num_docs, prefix, bucket=bucket.name,\
+                    verify=False)
+                view_names[prefix] = doc_names
+                view_bucket[prefix] = bucket.name
+
+        # Pick a node to warmup
+        server = self.servers[-1]
+        shell = RemoteMachineShellConnection(server)
+        self.log.info("Node {0} is being stopped".format(server.ip))
+        shell.stop_couchbase()
+        time.sleep(20)
+        shell.start_couchbase()
+        self.log.info("Node {0} should be warming up".format(server.ip))
+
+        self._query_test_init(data_set)
 
     def test_simple_dataset_stale_queries(self):
         # init dataset for test
@@ -446,7 +484,7 @@ class ViewQueryTests(unittest.TestCase):
             load_task.join()
 
         # results will be verified if verify_results set
-        if verify_results:
+        if verify_results and not self.thread_crashed.is_set():
             self._query_all_views(views, verify_results, data_set.kv_store, limit = data_set.limit)
         else:
             self._check_view_intergrity(views)
@@ -469,6 +507,7 @@ class ViewQueryTests(unittest.TestCase):
             if not query_threads:
                 return
             self.thread_stopped.wait(60)
+
             if self.thread_crashed.is_set():
                 for t in query_threads:
                     t.stop()
@@ -476,7 +515,6 @@ class ViewQueryTests(unittest.TestCase):
             else:
                 query_threads = [d for d in query_threads if d.is_alive()]
                 self.thread_stopped.clear()
-#        [t.join() for t in query_threads]
 
         self._check_view_intergrity(views)
 
@@ -1072,6 +1110,7 @@ class EmployeeDataSet:
         while True:
             if not data_threads:
                 return
+
             tc.thread_stopped.wait(60)
             if tc.thread_crashed.is_set():
                 for t in data_threads:
