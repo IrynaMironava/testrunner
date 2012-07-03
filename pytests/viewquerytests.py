@@ -1162,7 +1162,7 @@ class EmployeeDataSet:
                     self._load_chunk(smart, doc_sets)
         except Exception as ex:
             view.results.addError(tc, sys.exc_info())
-            tc.log.error("Load data thread is crashed: " + ex)
+            tc.log.error("Load data thread is crashed: {0}".format(ex))
             tc.thread_crashed.set()
             raise ex
         finally:
