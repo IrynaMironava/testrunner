@@ -65,9 +65,7 @@ class ViewQueryTests(unittest.TestCase):
         master = self.servers[0]
         rest = RestConnection(master)
 
-        buckets = rest.get_buckets()
- 
-        docs_per_day = self.input.param('docs-per-day', 200)
+        docs_per_day = self.input.param('docs-per-day', 2000)
         data_set = EmployeeDataSet(self._rconn(), docs_per_day)
 
         data_set.add_startkey_endkey_queries()
@@ -77,16 +75,8 @@ class ViewQueryTests(unittest.TestCase):
         ViewBaseTests._begin_rebalance_in(self)
         ViewBaseTests._end_rebalance(self)
 
-        view_names = {}
-        view_bucket = {}
-        for bucket in buckets:
-            for i in xrange(self.num_design_docs):
-                prefix = str(uuid.uuid4())[:7]
-                ViewBaseTests._create_view_doc_name(self, prefix, bucket.name)
-                doc_names = ViewBaseTests._load_docs(self, self.num_docs, prefix, bucket=bucket.name,\
-                    verify=False)
-                view_names[prefix] = doc_names
-                view_bucket[prefix] = bucket.name
+        prefix = str(uuid.uuid4())[:7]
+        ViewBaseTests._load_docs(self, self.num_docs, prefix, verify=False)
 
         # Pick a node to warmup
         server = self.servers[-1]
