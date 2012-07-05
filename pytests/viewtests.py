@@ -56,8 +56,7 @@ class ViewBaseTests(unittest.TestCase):
 
     @staticmethod
     def common_tearDown(self):
-        #we don't need restart services if nodes were crashed, everything should be stable
-        '''if "restart_services" in TestInputSingleton.input.test_params:
+        if "restart_services" in TestInputSingleton.input.test_params:
             master = self.servers[0]
             try:
                 RestConnection(master).stop_rebalance()
@@ -77,16 +76,15 @@ class ViewBaseTests(unittest.TestCase):
             for view in self.created_views:
                 bucket = self.created_views[view]
                 rest.delete_view(bucket, view)
-                self.log.info("deleted view {0} from bucket {1}".format(view, bucket))'''
+                self.log.info("deleted view {0} from bucket {1}".format(view, bucket))
         if not self.input.param("skip_cleanup", False):
             ViewBaseTests._common_clenup(self)
         ViewBaseTests._log_finish(self)
 
     @staticmethod
     def _common_clenup(self):
+        ClusterOperationHelper.cleanup_cluster(self.servers)
         BucketOperationHelper.delete_all_buckets_or_assert(self.servers, self)
-        for server in self.servers:
-            ClusterOperationHelper.cleanup_cluster([server])
         ClusterOperationHelper.wait_for_ns_servers_or_assert(self.servers, self)
 
     @staticmethod

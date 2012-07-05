@@ -51,6 +51,7 @@ class ViewQueryTests(unittest.TestCase):
             self.thread_stopped = Event()
             self.server = None
             self.cluster = Cluster()
+
         except Exception as ex:
             skip_setup_failed = True
             self.fail(ex)
@@ -60,6 +61,33 @@ class ViewQueryTests(unittest.TestCase):
 
         self.task_manager.cancel()
 
+    def test_query_node_warmup(self):
+        master = self.servers[0]
+        rest = RestConnection(master)
+
+        docs_per_day = self.input.param('docs-per-day', 2000)
+        data_set = EmployeeDataSet(self._rconn(), docs_per_day)
+
+        data_set.add_startkey_endkey_queries()
+        self._query_test_init(data_set, False)
+
+        # Cluster total - 1 nodes
+        ViewBaseTests._begin_rebalance_in(self)
+        ViewBaseTests._end_rebalance(self)
+
+        prefix = str(uuid.uuid4())[:7]
+        ViewBaseTests._load_docs(self, self.num_docs, prefix, verify=False)
+
+        # Pick a node to warmup
+        server = self.servers[-1]
+        shell = RemoteMachineShellConnection(server)
+        self.log.info("Node {0} is being stopped".format(server.ip))
+        shell.stop_couchbase()
+        time.sleep(20)
+        shell.start_couchbase()
+        self.log.info("Node {0} should be warming up".format(server.ip))
+
+        self._query_test_init(data_set)
 
     def test_simple_dataset_stale_queries(self):
         # init dataset for test
@@ -240,42 +268,42 @@ class ViewQueryTests(unittest.TestCase):
                 shell = RemoteMachineShellConnection(server)
                 shell.start_couchbase()
 
-        def test_employee_dataset_alldocs_queries_start_stop_rebalance_in_incremental(self):
-            docs_per_day = self.input.param('docs-per-day', 20)
-            data_set = EmployeeDataSet(self._rconn(), docs_per_day)
+    def test_employee_dataset_alldocs_queries_start_stop_rebalance_in_incremental(self):
+        docs_per_day = self.input.param('docs-per-day', 20)
+        data_set = EmployeeDataSet(self._rconn(), docs_per_day)
 
-            data_set.add_all_docs_queries()
-            self._query_test_init(data_set, False)
+        data_set.add_all_docs_queries()
+        self._query_test_init(data_set, False)
 
-            master = self.servers[0]
-            RebalanceHelper.wait_for_persistence(master, "default")
+        master = self.servers[0]
+        RebalanceHelper.wait_for_persistence(master, "default")
 
-            rest=RestConnection(self.servers[0])
+        rest=RestConnection(self.servers[0])
+        nodes = rest.node_statuses()
+
+        for server in self.servers[1:]:
+            self.log.info("current nodes : {0}".format([node.id for node in rest.node_statuses()]))
+            self.log.info("adding node {0}:{1} to cluster".format(server.ip, server.port))
+            otpNode = rest.add_node(master.rest_username, master.rest_password, server.ip, server.port)
+            msg = "unable to add node {0}:{1} to the cluster"
+            self.assertTrue(otpNode, msg.format(server.ip, server.port))
+
+            # Just doing 2 iterations
+            for i in [1, 2]:
+                rest.rebalance(otpNodes=[node.id for node in rest.node_statuses()], ejectedNodes=[])
+                expected_progress = 30*i
+                reached = RestHelper(rest).rebalance_reached(expected_progress)
+                self.assertTrue(reached, "rebalance failed or did not reach {0}%".format(expected_progress))
+                stopped = rest.stop_rebalance()
+                self.assertTrue(stopped, msg="unable to stop rebalance")
+                self._query_all_views(data_set.views)
+
+                rest.rebalance(otpNodes=[node.id for node in rest.node_statuses()], ejectedNodes=[])
+                self.assertTrue(rest.monitorRebalance(), msg="rebalance operation failed restarting")
+                self._query_all_views(data_set.views)
+
+            self.assertTrue(len(rest.node_statuses()) -len(nodes)==1, msg="number of cluster's nodes is not correct")
             nodes = rest.node_statuses()
-
-            for server in self.servers[1:]:
-                self.log.info("current nodes : {0}".format([node.id for node in rest.node_statuses()]))
-                self.log.info("adding node {0}:{1} to cluster".format(server.ip, server.port))
-                otpNode = rest.add_node(master.rest_username, master.rest_password, server.ip, server.port)
-                msg = "unable to add node {0}:{1} to the cluster"
-                self.assertTrue(otpNode, msg.format(server.ip, server.port))
-
-                # Just doing 2 iterations
-                for i in [1, 2]:
-                    rest.rebalance(otpNodes=[node.id for node in rest.node_statuses()], ejectedNodes=[])
-                    expected_progress = 30*i
-                    reached = RestHelper(rest).rebalance_reached(expected_progress)
-                    self.assertTrue(reached, "rebalance failed or did not reach {0}%".format(expected_progress))
-                    stopped = rest.stop_rebalance()
-                    self.assertTrue(stopped, msg="unable to stop rebalance")
-                    self._query_all_views(data_set.views)
-
-                    rest.rebalance(otpNodes=[node.id for node in rest.node_statuses()], ejectedNodes=[])
-                    self.assertTrue(rest.monitorRebalance(), msg="rebalance operation failed restarting")
-                    self._query_all_views(data_set.views)
-
-                self.assertTrue(len(rest.node_statuses()) -len(nodes)==1, msg="number of cluster's nodes is not correct")
-                nodes = rest.node_statuses()
 
     def test_employee_dataset_alldocs_queries_start_stop_rebalance_out_incremental(self):
         ViewBaseTests._begin_rebalance_in(self)
@@ -494,7 +522,7 @@ class ViewQueryTests(unittest.TestCase):
             load_task.join()
 
         # results will be verified if verify_results set
-        if verify_results:
+        if verify_results and not self.thread_crashed.is_set():
             self._query_all_views(views, verify_results, data_set.kv_store, limit = data_set.limit)
         else:
             self._check_view_intergrity(views)
@@ -517,14 +545,15 @@ class ViewQueryTests(unittest.TestCase):
             if not query_threads:
                 return
             self.thread_stopped.wait(60)
+
             if self.thread_crashed.is_set():
                 for t in query_threads:
                     t.stop()
+                self._check_view_intergrity(views)
                 return
             else:
                 query_threads = [d for d in query_threads if d.is_alive()]
                 self.thread_stopped.clear()
-#        [t.join() for t in query_threads]
 
         self._check_view_intergrity(views)
 
@@ -721,6 +750,10 @@ class QueryView:
                         self.log.error("No error raised for negative case. Expected error '{0}'".format(query.error))
                         self.results.addFailure(tc, (Exception, "No error raised for negative case", sys.exc_info()[2]))
                         tc.thread_crashed.set()
+        except Exception as ex:
+            self.log.error("Error {0} appeared during query run".format(ex))
+            self.results.addError(tc, (Exception, "{0}: {1}".format(ex, ex.message), sys.exc_info()[2]))
+            tc.thread_crashed.set()
         finally:
             if not tc.thread_stopped.is_set():
                 tc.thread_stopped.set()
@@ -1113,6 +1146,9 @@ class EmployeeDataSet:
                                              self.years * self.months),
                                  QueryHelper({"group_level" : "3"}, view.index_size,
                                              self.years * self.months * self.days)]
+            for q in view.queries:
+                if "group" in q.params and not "group_level" in q.params:
+                    q.expected_num_groups = 1
 
     def add_all_query_sets(self, views=None, limit=None):
         self.add_stale_queries(views, limit)
@@ -1152,6 +1188,7 @@ class EmployeeDataSet:
         while True:
             if not data_threads:
                 return
+
             tc.thread_stopped.wait(60)
             if tc.thread_crashed.is_set():
                 for t in data_threads:
@@ -1202,7 +1239,7 @@ class EmployeeDataSet:
                     self._load_chunk(smart, doc_sets)
         except Exception as ex:
             view.results.addError(tc, sys.exc_info())
-            tc.log.error("Load data thread is crashed: " + ex)
+            tc.log.error("Load data thread is crashed: {0}".format(ex))
             tc.thread_crashed.set()
             raise ex
         finally:
