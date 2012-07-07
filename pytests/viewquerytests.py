@@ -16,6 +16,7 @@ from old_tasks import task, taskmanager
 from memcached.helper.old_kvstore import ClientKeyValueStore
 from TestInput import TestInputSingleton
 from couchbase.cluster import Cluster
+from remote.remote_util import RemoteMachineShellConnection
 
 class StoppableThread(Thread):
     """Thread class with a stop() method. The thread itself has to check
@@ -422,6 +423,34 @@ class ViewQueryTests(unittest.TestCase):
             else:
                 query_nodes_threads = [d for d in query_nodes_threads if d.is_alive()]
                 self.thread_stopped.clear()
+
+    def test_query_node_warmup(self):
+        master = self.servers[0]
+        rest = RestConnection(master)
+
+        docs_per_day = self.input.param('docs-per-day', 500)
+        data_set = EmployeeDataSet(self._rconn(), docs_per_day)
+
+        data_set.add_startkey_endkey_queries()
+        self._query_test_init(data_set, False)
+
+        # Cluster total - 1 nodes
+        ViewBaseTests._begin_rebalance_in(self)
+        ViewBaseTests._end_rebalance(self)
+
+        prefix = str(uuid.uuid4())[:7]
+        ViewBaseTests._load_docs(self, self.num_docs, prefix, verify=False)
+
+        # Pick a node to warmup
+        server = self.servers[-1]
+        shell = RemoteMachineShellConnection(server)
+        self.log.info("Node {0} is being stopped".format(server.ip))
+        shell.stop_couchbase()
+        time.sleep(20)
+        shell.start_couchbase()
+        self.log.info("Node {0} should be warming up".format(server.ip))
+
+        self._query_all_views(data_set.views)
 
     def test_employee_dataset_query_add_nodes(self):
         docs_per_day = self.input.param('docs-per-day', 200)
