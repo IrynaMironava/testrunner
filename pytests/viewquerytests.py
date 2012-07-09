@@ -51,6 +51,7 @@ class ViewQueryTests(unittest.TestCase):
             self.thread_stopped = Event()
             self.server = None
             self.cluster = Cluster()
+
         except Exception as ex:
             skip_setup_failed = True
             self.fail(ex)
@@ -61,6 +62,33 @@ class ViewQueryTests(unittest.TestCase):
         self.task_manager.cancel()
         self.cluster.shutdown()
 
+    def test_query_node_warmup(self):
+        master = self.servers[0]
+        rest = RestConnection(master)
+
+        docs_per_day = self.input.param('docs-per-day', 2000)
+        data_set = EmployeeDataSet(self._rconn(), docs_per_day)
+
+        data_set.add_startkey_endkey_queries()
+        self._query_test_init(data_set, False)
+
+        # Cluster total - 1 nodes
+        ViewBaseTests._begin_rebalance_in(self)
+        ViewBaseTests._end_rebalance(self)
+
+        prefix = str(uuid.uuid4())[:7]
+        ViewBaseTests._load_docs(self, self.num_docs, prefix, verify=False)
+
+        # Pick a node to warmup
+        server = self.servers[-1]
+        shell = RemoteMachineShellConnection(server)
+        self.log.info("Node {0} is being stopped".format(server.ip))
+        shell.stop_couchbase()
+        time.sleep(20)
+        shell.start_couchbase()
+        self.log.info("Node {0} should be warming up".format(server.ip))
+
+        self._query_test_init(data_set)
 
     def test_simple_dataset_stale_queries(self):
         # init dataset for test
@@ -157,73 +185,120 @@ class ViewQueryTests(unittest.TestCase):
         self._query_test_init(data_set)
 
     def test_employee_dataset_alldocs_failover_queries(self):
-        ViewBaseTests._begin_rebalance_in(self)
-        ViewBaseTests._end_rebalance(self)
+        failover_nodes = []
+        try:
+            ViewBaseTests._begin_rebalance_in(self)
+            ViewBaseTests._end_rebalance(self)
 
-        docs_per_day = self.input.param('docs-per-day', 200)
-        data_set = EmployeeDataSet(self._rconn(), docs_per_day)
+            docs_per_day = self.input.param('docs-per-day', 200)
+            data_set = EmployeeDataSet(self._rconn(), docs_per_day)
 
-        data_set.add_all_docs_queries()
-        self._query_test_init(data_set, False)
+            data_set.add_all_docs_queries()
+            self._query_test_init(data_set, False)
 
-        master = self.servers[0]
-        RebalanceHelper.wait_for_persistence(master, "default")
+            master = self.servers[0]
+            RebalanceHelper.wait_for_persistence(master, "default")
 
-        # failover and verify loaded data
-        failover_helper = FailoverHelper(self.servers, self)
-        failover_nodes = failover_helper.failover(self.failover_factor)
-        self.log.info("10 seconds sleep after failover before invoking rebalance...")
-        time.sleep(10)
-
-        rest=RestConnection(self.servers[0])
-        nodes = rest.node_statuses()
-        rest.rebalance(otpNodes=[node.id for node in nodes],
-                       ejectedNodes=[node.id for node in failover_nodes])
-
-        self._query_all_views(data_set.views)
-
-        msg = "rebalance failed while removing failover nodes {0}".format(failover_nodes)
-        self.assertTrue(rest.monitorRebalance(), msg=msg)
-
-        #verify queries after failover
-        self._query_all_views(data_set.views)
-
-    def test_employee_dataset_alldocs_incremental_failover_queries(self):
-        ViewBaseTests._begin_rebalance_in(self)
-        ViewBaseTests._end_rebalance(self)
-
-        docs_per_day = self.input.param('docs-per-day', 200)
-        data_set = EmployeeDataSet(self._rconn(), docs_per_day)
-
-        data_set.add_all_docs_queries()
-        self._query_test_init(data_set, False)
-
-        servers=self.servers;
-
-        # incrementaly failover nodes and verify loaded data
-        for i in range(self.failover_factor):
-            failover_helper = FailoverHelper(servers, self)
-            failover_nodes = failover_helper.failover(1)
+            # failover and verify loaded data
+            failover_helper = FailoverHelper(self.servers, self)
+            failover_nodes = failover_helper.failover(self.failover_factor)
             self.log.info("10 seconds sleep after failover before invoking rebalance...")
             time.sleep(10)
 
             rest=RestConnection(self.servers[0])
             nodes = rest.node_statuses()
             rest.rebalance(otpNodes=[node.id for node in nodes],
-                       ejectedNodes=[node.id for node in failover_nodes])
+                           ejectedNodes=[node.id for node in failover_nodes])
 
             self._query_all_views(data_set.views)
 
-            temp=[]
-            for server in servers:
-                rest = RestConnection(server)
-                if not RestHelper(rest).is_ns_server_running(timeout_in_seconds=1):
-                    continue
-                temp.append(server)
-            servers=temp
-
             msg = "rebalance failed while removing failover nodes {0}".format(failover_nodes)
-            self.assertTrue(RestConnection(self.servers[0]).monitorRebalance(), msg=msg)
+            self.assertTrue(rest.monitorRebalance(), msg=msg)
+
+<<<<<<< HEAD
+    def test_employee_dataset_alldocs_queries_start_stop_rebalance_in_incremental(self):
+        docs_per_day = self.input.param('docs-per-day', 20)
+        data_set = EmployeeDataSet(self._rconn(), docs_per_day)
+=======
+            #verify queries after failover
+            self._query_all_views(data_set.views)
+        finally:
+            for server in [server for server in self.servers
+                           for node in failover_nodes
+                           if node.ip == server.ip and str(node.port) == server.port]:
+                shell = RemoteMachineShellConnection(server)
+                shell.start_couchbase()
+
+    def test_employee_dataset_alldocs_incremental_failover_queries(self):
+        failover_nodes = []
+        try:
+            ViewBaseTests._begin_rebalance_in(self)
+            ViewBaseTests._end_rebalance(self)
+
+            docs_per_day = self.input.param('docs-per-day', 200)
+            data_set = EmployeeDataSet(self._rconn(), docs_per_day)
+>>>>>>> e4006f6412a9eff52a4ebf5470d376b7431b92fa
+
+        data_set.add_all_docs_queries()
+        self._query_test_init(data_set, False)
+
+<<<<<<< HEAD
+        master = self.servers[0]
+        RebalanceHelper.wait_for_persistence(master, "default")
+
+        rest=RestConnection(self.servers[0])
+        nodes = rest.node_statuses()
+
+        for server in self.servers[1:]:
+            self.log.info("current nodes : {0}".format([node.id for node in rest.node_statuses()]))
+            self.log.info("adding node {0}:{1} to cluster".format(server.ip, server.port))
+            otpNode = rest.add_node(master.rest_username, master.rest_password, server.ip, server.port)
+            msg = "unable to add node {0}:{1} to the cluster"
+            self.assertTrue(otpNode, msg.format(server.ip, server.port))
+
+            # Just doing 2 iterations
+            for i in [1, 2]:
+                rest.rebalance(otpNodes=[node.id for node in rest.node_statuses()], ejectedNodes=[])
+                expected_progress = 30*i
+                reached = RestHelper(rest).rebalance_reached(expected_progress)
+                self.assertTrue(reached, "rebalance failed or did not reach {0}%".format(expected_progress))
+                stopped = rest.stop_rebalance()
+                self.assertTrue(stopped, msg="unable to stop rebalance")
+                self._query_all_views(data_set.views)
+
+=======
+            servers=self.servers;
+
+            # incrementaly failover nodes and verify loaded data
+            for i in range(self.failover_factor):
+                failover_helper = FailoverHelper(servers, self)
+                failover_nodes = failover_helper.failover(1)
+                self.log.info("10 seconds sleep after failover before invoking rebalance...")
+                time.sleep(10)
+
+                rest=RestConnection(self.servers[0])
+                nodes = rest.node_statuses()
+                rest.rebalance(otpNodes=[node.id for node in nodes],
+                           ejectedNodes=[node.id for node in failover_nodes])
+
+                self._query_all_views(data_set.views)
+
+                temp=[]
+                for server in servers:
+                    rest = RestConnection(server)
+                    if not RestHelper(rest).is_ns_server_running(timeout_in_seconds=1):
+                        continue
+                    temp.append(server)
+                servers=temp
+
+                msg = "rebalance failed while removing failover nodes {0}".format(failover_nodes)
+                self.assertTrue(RestConnection(self.servers[0]).monitorRebalance(), msg=msg)
+        finally:
+            for server in [server for server in self.servers
+                           for node in failover_nodes
+                           if node.ip == server.ip and str(node.port) == server.port]:
+                shell = RemoteMachineShellConnection(server)
+                shell.start_couchbase()
 
     def test_employee_dataset_alldocs_queries_start_stop_rebalance_in_incremental(self):
         docs_per_day = self.input.param('docs-per-day', 20)
@@ -255,6 +330,7 @@ class ViewQueryTests(unittest.TestCase):
                 self.assertTrue(stopped, msg="unable to stop rebalance")
                 self._query_all_views(data_set.views)
 
+>>>>>>> e4006f6412a9eff52a4ebf5470d376b7431b92fa
                 rest.rebalance(otpNodes=[node.id for node in rest.node_statuses()], ejectedNodes=[])
                 self.assertTrue(rest.monitorRebalance(), msg="rebalance operation failed restarting")
                 self._query_all_views(data_set.views)
@@ -507,7 +583,7 @@ class ViewQueryTests(unittest.TestCase):
             load_task.join()
 
         # results will be verified if verify_results set
-        if verify_results:
+        if verify_results and not self.thread_crashed.is_set():
             self._query_all_views(views, verify_results, data_set.kv_store, limit = data_set.limit)
         else:
             self._check_view_intergrity(views)
@@ -530,6 +606,7 @@ class ViewQueryTests(unittest.TestCase):
             if not query_threads:
                 return
             self.thread_stopped.wait(60)
+
             if self.thread_crashed.is_set():
                 for t in query_threads:
                     t.stop()
@@ -538,7 +615,6 @@ class ViewQueryTests(unittest.TestCase):
             else:
                 query_threads = [d for d in query_threads if d.is_alive()]
                 self.thread_stopped.clear()
-#        [t.join() for t in query_threads]
 
         self._check_view_intergrity(views)
 
@@ -1173,6 +1249,7 @@ class EmployeeDataSet:
         while True:
             if not data_threads:
                 return
+
             tc.thread_stopped.wait(60)
             if tc.thread_crashed.is_set():
                 for t in data_threads:
@@ -1223,7 +1300,7 @@ class EmployeeDataSet:
                     self._load_chunk(smart, doc_sets)
         except Exception as ex:
             view.results.addError(tc, sys.exc_info())
-            tc.log.error("Load data thread is crashed: " + ex)
+            tc.log.error("Load data thread is crashed: {0}".format(ex))
             tc.thread_crashed.set()
             raise ex
         finally:
