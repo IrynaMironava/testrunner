@@ -82,7 +82,10 @@ class ViewBaseTests(unittest.TestCase):
 
     @staticmethod
     def _common_clenup(self):
-        ClusterOperationHelper.cleanup_cluster(self.servers)
+        rest = RestConnection(self.servers[0])
+        if rest._rebalance_progress_status() == 'running':
+            stopped = rest.stop_rebalance()
+            self.assertTrue(stopped, msg="unable to stop rebalance")
         BucketOperationHelper.delete_all_buckets_or_assert(self.servers, self)
         ClusterOperationHelper.wait_for_ns_servers_or_assert(self.servers, self)
 
