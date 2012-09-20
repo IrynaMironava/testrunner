@@ -441,16 +441,19 @@ class ViewBaseTests(unittest.TestCase):
                     ViewBaseTests._wait_for_indexer_ddoc(self, rest, view)
                     time.sleep(timeout)
             except Exception as ex:
-                if invalid_results and ex.message.find('view_undefined') < 0:
+                if invalid_results and ex.message.find('view_undefined') != -1:
                         raise ex
-                if ex.message.find('view_undefined') > 0:
-                    self.log.error("view_results not ready yet , try again in {1} seconds... , error {0}".format(ex, timeout))
+                if ex.message.find('view_undefined') != -1 or ex.message.find('not_found') != -1:
+                    self.log.error(
+                            "view_results not ready yet , try again in {1} seconds... , error {0}"
+                            .format(ex, timeout))
                     ViewBaseTests._wait_for_indexer_ddoc(self, rest, view)
                     if i == num_tries:
-                        self.fail("unable to get view_results for {0} after {1} tries due to error {2}".format(view, num_tries, ex))
+                        self.fail("unable to get view_results for {0} after {1} tries due to error {2}"
+                                  .format(view, num_tries, ex))
                     time.sleep(timeout)
                 else:
-                    if results.get(u'rows', []):
+                    if u'rows' in results:
                         self.fail("Results are returned partially, but also error appears: %s" % ex)
                     else:
                         self.fail("Error appears during querying view {0} : {1}".format(view, ex))
