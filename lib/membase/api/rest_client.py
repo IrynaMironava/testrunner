@@ -850,8 +850,8 @@ class RestConnection(object):
         start = time.time()
         progress = 0
         retry = 0
-        same_progress_count = 0
-        previous_progress = 0
+        same_progress_count=0
+        previous_progress=0
         while progress != -1 and (progress != 100 or self._rebalance_progress_status() == 'running') and retry < 20:
             #-1 is error , -100 means could not retrieve progress
             progress = self._rebalance_progress()
@@ -891,7 +891,11 @@ class RestConnection(object):
     def _rebalance_progress_status(self):
         api = self.baseUrl + "pools/default/rebalanceProgress"
 
+<<<<<<< HEAD
         status, content, header = self._http_request(api)
+=======
+        status, content = self._http_request(api)
+>>>>>>> c75d4882d8c7c9334c1dac47dbbfafb4884f30af
 
         json_parsed = json.loads(content)
         if status:

@@ -138,6 +138,7 @@ class RebalanceOutTests(RebalanceBaseTest):
 
     This test begins with all servers clustered together and loads a user defined
     number of items into the cluster. It creates num_views as
+    This test begins by loading a given number of items into the cluster. It creates num_views in
     development/production view with default map view funcs(is_dev_ddoc = True by default).
     It then removes nodes_out nodes at a time and rebalances that node from the cluster.
     During the rebalancing we perform view queries for all views and verify the expected number
@@ -198,10 +199,31 @@ class RebalanceOutTests(RebalanceBaseTest):
             self.perform_verify_queries(num_views, prefix, ddoc_name, query, bucket=bucket, wait_time=timeout, expected_rows=expected_rows)
         self._wait_for_stats_all_buckets(self.servers[:self.num_servers - self.nodes_out])
         self._verify_all_buckets(self.master, max_verify=self.max_verify)
+=======
+        tasks = []
+        tasks = self.async_create_views(self.master, ddoc_name, views, self.default_bucket_name)
+        for task in tasks:
+            task.result(self.wait_timeout * 2)
+        self.perform_verify_queries(num_views, prefix, ddoc_name, query)
+        servs_out=self.servers[-self.nodes_out:]
+        rebalance = self.cluster.async_rebalance([self.master], [], servs_out)
+        time.sleep(self.wait_timeout / 5)
+        #see that the result of view queries are the same as expected during the test
+        self.perform_verify_queries(num_views, prefix, ddoc_name, query)
+        #verify view queries results after rebalancing
+        rebalance.result()
+        self.perform_verify_queries(num_views, prefix, ddoc_name, query)
+        self._wait_for_stats_all_buckets(self.servers[:self.num_servers - self.nodes_out])
+        self._verify_all_buckets(self.master)
+>>>>>>> c75d4882d8c7c9334c1dac47dbbfafb4884f30af
         self._verify_stats_all_buckets(self.servers[:self.num_servers - self.nodes_out])
 
     """Rebalances nodes out of a cluster during view queries incrementally.
 
+<<<<<<< HEAD
+=======
+>>>>>>> 08c88f5... MB-100: fix object does not support indexing
+>>>>>>> c75d4882d8c7c9334c1dac47dbbfafb4884f30af
     This test begins with all servers clustered together and  loading a given number of items
     into the cluster. It creates num_views as development/production view with
     default map view funcs(is_dev_ddoc = True by default).  It then adds two nodes at a time and
