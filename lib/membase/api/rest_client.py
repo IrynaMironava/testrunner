@@ -891,11 +891,7 @@ class RestConnection(object):
     def _rebalance_progress_status(self):
         api = self.baseUrl + "pools/default/rebalanceProgress"
 
-<<<<<<< HEAD
         status, content, header = self._http_request(api)
-=======
-        status, content = self._http_request(api)
->>>>>>> c75d4882d8c7c9334c1dac47dbbfafb4884f30af
 
         json_parsed = json.loads(content)
         if status:
