@@ -3181,4 +3181,3 @@ class QueryHelper:
 
         return failures
 
-

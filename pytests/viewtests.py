@@ -15,6 +15,7 @@ from membase.helper.failover_helper import FailoverHelper
 from membase.helper.rebalance_helper import RebalanceHelper
 from memcached.helper.data_helper import MemcachedClientHelper, VBucketAwareMemcached, DocumentGenerator
 from memcached.helper.data_helper import MemcachedError
+from remote.remote_util import RemoteMachineShellConnection
 
 class ViewBaseTests(unittest.TestCase):
 
@@ -69,6 +70,7 @@ class ViewBaseTests(unittest.TestCase):
             stopped = rest.stop_rebalance()
             self.assertTrue(stopped, msg="unable to stop rebalance")
         BucketOperationHelper.delete_all_buckets_or_assert(self.servers, self)
+        ClusterOperationHelper.cleanup_cluster(self.servers)
         ClusterOperationHelper.wait_for_ns_servers_or_assert(self.servers, self)
 
     @staticmethod
@@ -456,10 +458,6 @@ class ViewBaseTests(unittest.TestCase):
             self.fail("unable to get view_results for {0} after {1} tries due to error {2}".format(view, num_tries, results.get(u'errors')))
         if results.get(u'error', ''):
             self.fail("unable to get view_results for {0} after {1} tries due to error {2}-{3}".format(view, num_tries, results.get(u'error'), results.get(u'reason')))
-                self.log.error("view_results not ready yet , try again in {1} seconds... , error {0}".format(ex, timeout))
-                time.sleep(timeout)
-        if results.get(u'errors', []):
-            self.fail("unable to get view_results for {0} after {1} tries due to error {2}".format(view, num_tries, results.get(u'errors')))
         self.fail("unable to get view_results for {0} after {1} tries".format(view, num_tries))
 
     @staticmethod
